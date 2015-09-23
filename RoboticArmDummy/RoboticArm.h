@@ -1,8 +1,6 @@
 #pragma once
 #include "Joint.h"
 
-typedef unsigned int uint;
-
 class RoboticArm
 {
 public:

@@ -1,28 +1,28 @@
 #pragma once
 #include "Joint.h"
-//#include "Servo.h"
+#include "IOManager.h"
 
 class ServoJoint : public Joint
 {
 public:
-	ServoJoint(byte p_SensorPin);
+	ServoJoint(byte p_ServoPin);
 	virtual void Update();
 	void SetDegrees(byte p_Degrees);
 protected:
 private:
-	//Servo m_Servo;
+	void* m_Servo;
 };
 
-ServoJoint::ServoJoint(byte p_SensorPin) : Joint(p_SensorPin)
+ServoJoint::ServoJoint(byte p_ServoPin) : Joint(p_ServoPin)
 {
-	//m_Servo.attach(p_SensorPin);
+	this->m_Servo = GIOManager.ServoCreate(p_ServoPin);
 }
 
 void ServoJoint::Update()
 {
 	if (this->HasChanged())
 	{
-		//m_Servo.write(this->GetDegrees());
+		GIOManager.ServoWrite(this->m_Servo, this->GetDegrees());
 	}
 }
 

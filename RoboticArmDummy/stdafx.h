@@ -15,3 +15,4 @@
 // TODO: reference additional headers your program requires here
 
 typedef unsigned char byte;
+typedef unsigned int uint;

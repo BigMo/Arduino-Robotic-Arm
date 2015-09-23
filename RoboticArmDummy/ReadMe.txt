@@ -3,6 +3,7 @@
 ========================================================================
 
 This is a dummy-application designed for developing and testing the code before running it on an arduino.
+
 Classes of interest:
 	- SensorArm
 		Create an instance and call Init once.
@@ -26,3 +27,6 @@ Basic concept:
 			-> Call MimicSensorArm to "mimic" the pose of the passed arm
 	Also, there's a capture-feature (to implement Teach-In):
 	Create a capture, start capturing and call Update to capture the current pose of an arm.
+
+Important:
+	This project works with servos that have a max range of 180 degrees (byte: 0-255)!
