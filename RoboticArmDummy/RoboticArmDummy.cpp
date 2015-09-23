@@ -23,17 +23,21 @@ int main()
 	servoArm.Update();
 	sensorArm.Update();
 
-	Capture* capture = new Capture();
-	for (int i = 0; i < 10; i++) 
+	Capture* capture = new Capture(&servoArm, 100000);
+	capture->StartCapture();
+	
+	for (int i = 0; i < 1000; i++) 
 	{
 		for (int j = 0; j < servoArm.GetNumberOfJoints(); j++)
-			((ServoJoint*)servoArm.GetJoint(j))->SetDegrees(i * j * 2);
-		capture->SaveSnapshot(&servoArm);
+			((ServoJoint*)servoArm.GetJoint(j))->SetDegrees(i * j * 2 + 1);
+		capture->Update();
+		capture->Print();
+		system("pause");
 	}
 
-	capture->Print();
 	delete capture;
 
+	printf("Done\n");
 	system("pause");
 
 	servoArm.MimicSensorArm(&sensorArm);
