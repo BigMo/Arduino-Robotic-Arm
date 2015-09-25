@@ -1,12 +1,20 @@
 #pragma once
-#include <list>
+//#include <list>
+#include <vector>
 #include "Snapshot.h"
 #include "RoboticArm.h"
+
+#define POSITIVE 1
+#define NEGATIVE -1
+#define ZERO 0
+#define SIGN(x) (x == 0 ? ZERO : (x < 0 ? NEGATIVE : POSITIVE))
+#define GETDEG(x,y) (this->m_Snapshots[x]->GetDegree(y))
+#define SETDEG(x,y,z) (this->m_Snapshots[x]->SetDegree(y, z))
 
 class Capture
 {
 public:
-	Capture(ServoArm *m_pArm, uint p_NumberOfCaptures);
+	Capture(ServoArm *m_pServoArm, SensorArm *p_SensorArm, uint p_NumberOfCaptures);
 	~Capture();
 	void Print();
 
@@ -23,28 +31,38 @@ public:
 	void ToggleReplay();
 	
 	void Update();
+	void Smooth();
 protected:
 	void SaveSnapshot();
 	void ApplyNextSnapshot();
 private:
+	void SmoothJoint(uint idx);
+	void ApplySmoothing(uint pJointIdx, uint pBegin, uint pEnd);
 	void ReleaseSnapshots();
-	std::list<Snapshot*> m_Snapshots;
-	ServoArm *m_pArm;
+	Snapshot* m_Snapshots[10];
+	ServoArm *m_pServoArm;
+	SensorArm *m_pSensorArm;
 	bool m_bRecording;
 	bool m_bReplaying;
 	uint m_iNumberOfCaptures;
 	uint m_iCurrentReplayIndex;
+	uint m_iCurrentRecordIndex;
 };
 
-Capture::Capture(ServoArm *p_Arm, uint p_NumberOfCaptures)
+Capture::Capture(ServoArm *p_Arm, SensorArm *p_SensorArm, uint p_NumberOfCaptures)
 {
-	this->m_pArm = p_Arm;
-	this->m_iNumberOfCaptures = p_NumberOfCaptures;
+	this->m_pServoArm = p_Arm;
+	this->m_pSensorArm = p_SensorArm;
+	this->m_iNumberOfCaptures = 10;// p_NumberOfCaptures;
+	//this->m_Snapshots = new Snapshot*[this->m_iNumberOfCaptures];
+	for (uint i = 0; i < this->m_iNumberOfCaptures; i++)
+		this->m_Snapshots[i] = NULL;
 }
 
 Capture::~Capture()
 {
 	this->ReleaseSnapshots();
+	delete[] this->m_Snapshots;
 }
 
 void Capture::Update()
@@ -57,39 +75,35 @@ void Capture::Update()
 
 void Capture::SaveSnapshot()
 {
-	m_Snapshots.push_back(new Snapshot(this->m_pArm));
-	
-	if (m_Snapshots.size() > this->m_iNumberOfCaptures)
-	{
-		Snapshot *snap = *m_Snapshots.begin();
-		m_Snapshots.pop_front();
-		delete snap;
-	}
+	this->m_iCurrentRecordIndex %= this->m_iNumberOfCaptures;
+
+	Snapshot *snap = this->m_Snapshots[this->m_iCurrentRecordIndex];
+	delete snap;
+	this->m_Snapshots[this->m_iCurrentRecordIndex] = new Snapshot(this->m_pSensorArm);
+
+	this->m_iCurrentRecordIndex++;
 }
 
 void Capture::ApplyNextSnapshot()
 {
-	this->m_iCurrentReplayIndex %= this->m_Snapshots.size();
+	this->m_iCurrentReplayIndex %= this->m_iNumberOfCaptures;
 
-	int idx = 0;
-	for (auto it = m_Snapshots.begin(); it != m_Snapshots.end(); it++, idx++)
-		if (idx == m_iCurrentReplayIndex)
-			(*it)->ApplyToArm(this->m_pArm);
+	this->m_Snapshots[this->m_iCurrentReplayIndex]->ApplyToArm(this->m_pServoArm);
 
 	this->m_iCurrentReplayIndex++;
 }
 
 void Capture::Print()
 {
-	int idx = 0;
-	int numElements = this->m_Snapshots.size();
-	printf("Number of captures: %i\n", numElements);
+	printf("Number of captures: %i\n", this->m_iNumberOfCaptures);
 	
-	for (auto it = m_Snapshots.begin(); it != m_Snapshots.end(); it++)
+	for (uint i = 0; i < this->m_iNumberOfCaptures; i++)
 	{  
-		printf("Snapshot #%i: ", idx++);
-		for (uint i = 0; i < (*it)->GetNumberOfDegrees(); i++) {
-			printf("%i ", (*it)->GetDegree(i));
+		if (this->m_Snapshots[i] == NULL)
+			break;
+		printf("Snapshot #%i: ", i);
+		for (uint i = 0; i < this->m_Snapshots[i]->GetNumberOfDegrees(); i++) {
+			printf("%i ", this->m_Snapshots[i]->GetDegree(i));
 		}
 		printf("\n");
 	}     
@@ -97,9 +111,8 @@ void Capture::Print()
 
 void Capture::ReleaseSnapshots()
 {
-	for (auto it = m_Snapshots.begin(); it != m_Snapshots.end(); it++)
-		delete *it;
-	m_Snapshots.clear();
+	for (uint i = 0; i < this->m_iNumberOfCaptures; i++)
+		delete m_Snapshots[i];
 }
 
 void Capture::StartRecording()
@@ -117,6 +130,7 @@ void Capture::StopRecording()
 void Capture::ResetCapture()
 {
 	this->ReleaseSnapshots();
+	this->m_iCurrentRecordIndex = 0;
 }
 
 void Capture::StartReplay()
@@ -160,4 +174,71 @@ void Capture::ToggleReplay()
 		this->StopReplay();
 	else
 		this->StartReplay();
+}
+
+void Capture::Smooth()
+{
+	if (this->m_Snapshots[0] == NULL)
+		return;
+	for (uint i = 0; i < this->m_Snapshots[0]->GetNumberOfDegrees(); i++)
+		this->SmoothJoint(i);
+}
+
+void Capture::SmoothJoint(uint idx)
+{
+	uint begin = 0, end;
+	byte currentDir;
+	char currentDist = 0;
+	bool applySmoothing;
+	currentDir = SIGN(GETDEG(0, idx));
+
+	for (uint snap = 1; snap < this->m_iNumberOfCaptures; snap++)
+	{
+		applySmoothing = false;
+
+		if (this->m_Snapshots[snap] == NULL)
+		{
+			applySmoothing = true;
+		}
+		else
+		{
+			currentDist = GETDEG(snap, idx) - GETDEG(snap - 1, idx);
+			byte sign = SIGN(currentDist); //this->m_Snapshots[snap]->GetDegree(idx));
+			if (sign != currentDir)
+				applySmoothing = true;
+		}
+		if (applySmoothing) 
+		{
+			end = snap - 1;
+			this->ApplySmoothing(idx, begin, end);
+			begin = end;
+			currentDir = SIGN(GETDEG(snap, idx) - GETDEG(snap - 1, idx));//SIGN(GETDEG(snap, idx));
+		}
+	}
+}
+
+void Capture::ApplySmoothing(uint pJointIdx, uint pBegin, uint pEnd)
+{
+	//pBegin = 0
+	//pEnd = 3
+	//valBegin = 2
+	//varEnd = 9
+	//steps = 3 - 0 - 1
+	//steps - 1 = 2
+	//stepSize = (3 - 0) / 2 = 2
+
+	//[pBegin + 1 + steps] = [pBegin] + stepSize
+	//[0] = 2				= 2
+	//[0 + 1] = 2 + 2 * 1	= 4
+	//[0 + 2] = 2 + 2 * 2	= 6
+	//[3] = 9				= 9
+	byte valBegin = GETDEG(pBegin, pJointIdx), valEnd = GETDEG(pEnd, pJointIdx);
+	uint steps = pEnd - pBegin;
+	if (steps <= 2)
+		return;
+	steps -= 1; //skip first and last
+	char stepSize = (valEnd - valBegin) / steps;
+	
+	for (uint i = 0; i < steps; i++)
+		SETDEG(pBegin + 1 + i, pJointIdx, GETDEG(pBegin, pJointIdx) + stepSize * (i + 1));
 }
